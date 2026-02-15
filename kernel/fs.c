@@ -408,6 +408,7 @@ bmap(struct inode *ip, uint bn)
   uint addr, *a;
   struct buf *bp;
 
+  // Direct blocks
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0){
       addr = balloc(ip->dev);
@@ -419,6 +420,7 @@ bmap(struct inode *ip, uint bn)
   }
   bn -= NDIRECT;
 
+  // Single indirect blocks
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0){
@@ -439,29 +441,36 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
-
   bn -= NINDIRECT;
-  int indbn = bn/NINDIRECT;
 
-  if(bn < NIN2DIRECT){
-    // Load indirect block, allocating if necessary.
+  // Double indirect blocks
+  if(bn < NINDIRECT * NINDIRECT){
+    int indbn = bn / NINDIRECT;  // Index in double indirect block
+    int bnmod = bn % NINDIRECT;   // Index in indirect block
+    
+    // Get double indirect block
     if((addr = ip->addrs[NDIRECT + 1]) == 0){
       addr = balloc(ip->dev);
       if(addr == 0)
         return 0;
       ip->addrs[NDIRECT + 1] = addr;
     }
+    
+    // Get indirect block from double indirect
     bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;   //arr of indirect nodes
+    a = (uint*)bp->data;
     if((addr = a[indbn]) == 0){
       addr = balloc(ip->dev);
-      if(addr == 0) 
+      if(addr == 0) {
+        brelse(bp);
         return 0;
+      }
       a[indbn] = addr;
       log_write(bp);
     }
     brelse(bp);
-    int bnmod = bn % NINDIRECT;
+    
+    // Get data block from indirect
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bnmod]) == 0){
@@ -474,40 +483,51 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+  bn -= NINDIRECT * NINDIRECT;
 
-  bn -= NIN2DIRECT;
-  int ind2bn = bn/NIN2DIRECT;
-  int indbn = (bn % NIN2DIRECT)/NINDIRECT;
-
-  if(bn < NIN3DIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT + 1]) == 0){
+  // Triple indirect blocks
+  if(bn < NINDIRECT * NINDIRECT * NINDIRECT){
+    int ind2bn = bn / (NINDIRECT * NINDIRECT);        // First level
+    int indbn = (bn / NINDIRECT) % NINDIRECT;         // Second level
+    int bnmod = bn % NINDIRECT;                        // Third level
+    
+    // Get triple indirect block
+    if((addr = ip->addrs[NDIRECT + 2]) == 0){
       addr = balloc(ip->dev);
       if(addr == 0)
         return 0;
-      ip->addrs[NDIRECT + 1] = addr;
+      ip->addrs[NDIRECT + 2] = addr;
     }
+    
+    // Get double indirect block
     bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;   //arr of in2direct nodes
+    a = (uint*)bp->data;
     if((addr = a[ind2bn]) == 0){
       addr = balloc(ip->dev);
-      if(addr == 0) 
+      if(addr == 0) {
+        brelse(bp);
         return 0;
+      }
       a[ind2bn] = addr;
       log_write(bp);
     }
     brelse(bp);
+    
+    // Get indirect block
     bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;   //arr of indirect nodes
+    a = (uint*)bp->data;
     if((addr = a[indbn]) == 0){
       addr = balloc(ip->dev);
-      if(addr == 0) 
+      if(addr == 0) {
+        brelse(bp);
         return 0;
+      }
       a[indbn] = addr;
       log_write(bp);
     }
     brelse(bp);
-    int bnmod = bn % NINDIRECT;
+    
+    // Get data block
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bnmod]) == 0){
