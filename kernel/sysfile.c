@@ -274,7 +274,6 @@ create(char *path, short type, short major, short minor)
   iupdate(ip);
 
   if(type == T_DIR){  // Create . and .. entries.
-    // No ip->nlink++ for ".": avoid cyclic ref count.
     if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
       goto fail;
   }
@@ -283,7 +282,6 @@ create(char *path, short type, short major, short minor)
     goto fail;
 
   if(type == T_DIR){
-    // now that success is guaranteed:
     dp->nlink++;  // for ".."
     iupdate(dp);
   }
@@ -312,8 +310,6 @@ sys_open(void)
 
   argint(1, &omode);
 
-  // Fetch arguments. 
-  // Note: We use path[MAXPATH] and pass it to argstr.
   if(argstr(0, path, MAXPATH) < 0)
     return -1;
 
@@ -333,14 +329,10 @@ sys_open(void)
     
     ilock(ip);
 
-    // --- SYMLINK LOGIC START ---
-    // If it's a symlink and we aren't using O_NOFOLLOW
-    // Make sure O_NOFOLLOW is defined in fcntl.h (e.g., #define O_NOFOLLOW 0x004)
+
     if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
       int depth = 0;
-      // Loop to follow recursive symlinks (link -> link -> file)
       while(ip->type == T_SYMLINK){
-        // 1. Cycle detection (max depth 10)
         if(depth >= 10){
           iunlockput(ip);
           end_op();
@@ -348,20 +340,16 @@ sys_open(void)
         }
         depth++;
 
-        // 2. Read the target path from the symlink file
         char target[MAXPATH];
-        // usage: readi(inode, user_dst, dst_addr, offset, len)
         if((n = readi(ip, 0, (uint64)target, 0, MAXPATH)) < 0){
           iunlockput(ip);
           end_op();
           return -1;
         }
-        target[n] = 0; // Null-terminate the string
+        target[n] = 0; 
 
-        // 3. Release the current inode
         iunlockput(ip);
 
-        // 4. Resolve the new target path
         if((ip = namei(target)) == 0){
           end_op();
           return -1;
@@ -369,7 +357,6 @@ sys_open(void)
         ilock(ip);
       }
     }
-    // --- SYMLINK LOGIC END ---
 
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
