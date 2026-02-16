@@ -313,9 +313,9 @@ virtio_disk_intr()
     __sync_synchronize();
     int id = disk.used->ring[disk.used_idx % NUM].id;
 
-    if(disk.info[id].status != 0)
+    if(disk.info[id].status != 0) 
       panic("virtio_disk_intr status");
-
+      
     struct buf *b = disk.info[id].b;
     b->disk = 0;   // disk is done with buf
     wakeup(b);
