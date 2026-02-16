@@ -24,7 +24,7 @@ int getpid(void);
 char* sys_sbrk(int,int);    
 int pause(int);
 int uptime(void);
-int sys_symlink(char *, char *);
+int symlink(char *, char *);
 
 // ulib.c
 int stat(const char*, struct stat*);
