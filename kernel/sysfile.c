@@ -311,7 +311,10 @@ sys_open(void)
   int n;
 
   argint(1, &omode);
-  if((n = argstr(0, path, MAXPATH)) < 0)
+
+  // Fetch arguments. 
+  // Note: We use path[MAXPATH] and pass it to argstr.
+  if(argstr(0, path, MAXPATH) < 0)
     return -1;
 
   begin_op();
@@ -327,18 +330,52 @@ sys_open(void)
       end_op();
       return -1;
     }
+    
     ilock(ip);
+
+    // --- SYMLINK LOGIC START ---
+    // If it's a symlink and we aren't using O_NOFOLLOW
+    // Make sure O_NOFOLLOW is defined in fcntl.h (e.g., #define O_NOFOLLOW 0x004)
+    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){
+      int depth = 0;
+      // Loop to follow recursive symlinks (link -> link -> file)
+      while(ip->type == T_SYMLINK){
+        // 1. Cycle detection (max depth 10)
+        if(depth >= 10){
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        depth++;
+
+        // 2. Read the target path from the symlink file
+        char target[MAXPATH];
+        // usage: readi(inode, user_dst, dst_addr, offset, len)
+        if((n = readi(ip, 0, (uint64)target, 0, MAXPATH)) < 0){
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        target[n] = 0; // Null-terminate the string
+
+        // 3. Release the current inode
+        iunlockput(ip);
+
+        // 4. Resolve the new target path
+        if((ip = namei(target)) == 0){
+          end_op();
+          return -1;
+        }
+        ilock(ip);
+      }
+    }
+    // --- SYMLINK LOGIC END ---
+
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
       return -1;
     }
-  }
-
-  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
-    iunlockput(ip);
-    end_op();
-    return -1;
   }
 
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
@@ -501,5 +538,33 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+int
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+
+  if((ip = create(path, T_SYMLINK, 0, 0)) == 0){
+    end_op();
+    return -1;
+  }
+
+  // standard RISC-V writei: 5 arguments
+  if(writei(ip, 0, (uint64)target, 0, strlen(target)) != strlen(target)){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op();
   return 0;
 }

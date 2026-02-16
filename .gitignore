@@ -1,0 +1,8 @@
+*.o
+*.asm
+*.sym
+*.d
+*.S
+_*
+mkfs/mkfs
+fs.img*
